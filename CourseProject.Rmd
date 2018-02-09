@@ -1,0 +1,23 @@
+---
+title: "08_PracticalMachineLearning Course Project"
+author: "Ramiro Alvite Díaz"
+date: "9 de febrero de 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Data preparation - variable selection
+
+*predictors with variance 0
+*multicollinearity
+*transformation (preprocessing)
+
+# Model selection & stack
+
+# Model validation
+
+RMSE, Accuracy, Confusion matrix
