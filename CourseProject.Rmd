@@ -12,12 +12,13 @@ knitr::opts_chunk$set(echo = TRUE)
 
 # Data preparation - variable selection
 
-*predictors with variance 0
-*multicollinearity
-*transformation (preprocessing)
+preprocessing steps for finding, removing, and cleaning data to prepare it for machine learning
+
+* predictors with variance 0
+* Exploratory data analysis: 1) multicollinearity, 2) outliers and missing values (common in sensor devices)
+* transformation (preprocessing): dimension reduction (PCA) as predictors
 
 # Model selection & stack
 
-# Model validation
-
-RMSE, Accuracy, Confusion matrix
+Find variable importance
+Model assessment tools: RMSE, Accuracy, Confusion matrix
