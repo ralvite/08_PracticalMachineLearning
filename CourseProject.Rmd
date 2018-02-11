@@ -1,24 +1,304 @@
 ---
 title: "08_PracticalMachineLearning Course Project"
-author: "Ramiro Alvite DÃ­az"
+author: "Ramiro Alvite Díaz"
 date: "9 de febrero de 2018"
 output: html_document
 ---
 
-```{r setup, include=FALSE}
+## Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement among a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, the goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har
+
+## Environment execution
+
+The following packages are used to perform analysis
+
+```{r setup, include=FALSE, message=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(caret)
+library(kernlab)
+library(ggplot2)
+library(rattle)
+library(corrplot)
+```
+
+## Getting data
+
+### Dataset overview
+The data source for this project come from the project http://groupware.les.inf.puc-rio.br/har. :
+
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. "Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13)". Stuttgart, Germany: ACM SIGCHI, 2013.
+
+A short description is given at project webpage:
+
+> "Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E).
+
+> Class A corresponds to the specified execution of the exercise, while the other 4 classes correspond to common mistakes. Participants were supervised by an experienced weight lifter to make sure the execution complied to the manner they were supposed to simulate. The exercises were performed by six male participants aged between 20-28 years, with little weight lifting experience. We made sure that all participants could easily simulate the mistakes in a safe and controlled manner by using a relatively light dumbbell (1.25kg)."
+
+
+```{r eval=FALSE}
+if(!file.exists("./data")){dir.create("./data")}
+urlTrain <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+urlTest <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+# download.file(urlTrain, destfile = "./data/pml-training.csv"); download.file(urlTest, destfile = "./data/pml-testing.csv")
+```
+
+```{r}
+dfTrain <- read.csv("./data/pml-training.csv", na.strings = c("NA", ""))
+dfTest <- read.csv("./data/pml-testing.csv", na.strings = c("NA", ""))
+
+# explore distribution of outcome
+# table(dfTrain$classe)
+dim(dfTrain)
+dim(dfTest)
+```
+
+The raw data (train, test) have 160 columns.
+
+
+## Data preparation and Predictors selection
+
+This section relates the preprocessing steps for finding, removing, and cleaning data to prepare it for machine learning.
+
+The first seven columns are remove since these variables have identification purposes 
+
+```{r}
+dfTrain <- dfTrain[, -c(1:7)]
+dfTest <- dfTest[, -c(1:7)]
+
+dim(dfTrain)
+dim(dfTest)
 ```
 
 
-# Data preparation - variable selection
+### Identification of near zero variance predictors
 
-preprocessing steps for finding, removing, and cleaning data to prepare it for machine learning
+There are many models where predictors with a single unique value (also known as zerovariance predictors") will cause the model to fail.  
 
-* predictors with variance 0
-* Exploratory data analysis: 1) multicollinearity, 2) outliers and missing values (common in sensor devices)
-* transformation (preprocessing): dimension reduction (PCA) as predictors
+`Caret::nearZeroVar()` diagnoses predictors that have one unique value (i.e. are zero variance predictors) or predictors that are have both of the following characteristics: they have very few unique values relative to the number of samples and the ratio of the frequency of the most common value to the frequency of the second most common value is large. 
 
-# Model selection & stack
+```{r }
+# Create a list of columns of zero or near zero variance
+nzv <- nearZeroVar(dfTrain,saveMetrics=FALSE, names = FALSE) # !important: names = true fails next step
+# nzv
+length(nzv)
+```
 
-Find variable importance
-Model assessment tools: RMSE, Accuracy, Confusion matrix
+A total of `r length(nzv)` columns have zero or near-zero variance. These columns should not be considered as predictors.
+
+```{r}
+# extract colnames not in near-zero list
+dfTrain <- dfTrain[, -nzv]
+dfTest <- dfTest[, -nzv]
+# dfTrain <- dfTrain[ , !(colnames(dfTrain) %in% nzv)]
+dim(dfTrain)
+dim(dfTest)
+```
+
+
+
+### Missing values
+
+The dataset contains plenty of columns with no data values that are removed. The thereshold of 10% of missing values in the column is considered.
+
+```{r}
+# Check for missing values
+# sapply(dfTrain, function(x) sum(is.na(x)))
+
+# keep columns from train dataset with less than 10% of rows of missing values 
+notmisval <- colSums(is.na(dfTrain)) <= .10 * nrow(dfTrain)
+dfTrain <- dfTrain[, notmisval]
+dfTest <- dfTest[, notmisval]
+
+# check again missing values
+# sapply(dfTrain, function(x) sum(is.na(x)))
+dim(dfTrain)
+dim(dfTest)
+ncol(dfTrain)
+```
+
+
+
+
+### Multicollinearity
+
+Also, some models are susceptible to multicollinearity (i.e., high correlations between predictors). Linear models, neural networks and other models can have poor performance in these situations or may generate unstable solutions. Other models, such as classifcation or regression trees, might be resistant to highly correlated predictors, but multicollinearity may negatively affect interpretability of the model.
+
+Using data exploratory analysis give a first view of correlation among predictors. The highly correlated variables are shown in dark colors. 
+
+```{r}
+corMatrix <- cor(dfTrain[, -ncol(dfTrain)])
+corrplot(corMatrix, order = "FPC", method = "color", type = "lower", 
+         tl.cex = 0.8, tl.col = rgb(0, 0, 0))
+```
+
+
+we can compute the correlation matrix of the predictors and use an algorithm to remove the a subset of the problematic predictors such that all of the pairwise correlations are below a threshold:
+
+
+```{r}
+
+descrCorr <- cor(dfTrain[sapply(dfTrain, is.numeric)]) # find correlation only in numeric columns
+highCorr <- findCorrelation(descrCorr, 0.90)
+# remove high correlated predictors
+dfTrain <- dfTrain[, -highCorr]
+dfTest <- dfTest[, -highCorr]
+# testDescr <- testDescr[, -highCorr]
+dim(dfTrain)
+dim(dfTest)
+
+```
+
+The training dataset is then partinioned in 2 folds for the model generation: (1) a training set (75% of the data) and (2) a test set (with the remaining 25%) for the validation.
+
+```{r}
+set.seed(123)
+inTrain = createDataPartition(dfTrain$classe, p = 0.75, list = FALSE)
+training = dfTrain[ inTrain,]
+testing = dfTrain[-inTrain,]
+```
+
+
+### Dimension reduction (PCA) and Standarizing
+
+Once the final set of predictors is determined, the values may require transformations before being used in a model. Some models, such as partial least squares, neural networks and support vector machines, need the predictor variables to be centered and/or scaled. The preProcess function is to determine values for predictor transformations using the training set and later will be applied to the test set.
+
+Note: For the purpose of this project no transformation was finally applied.
+
+```{r}
+str(training)
+# exclude from preProcess x,user,timestamps outcome
+preProcObj <- preProcess(training[,-c(1,2,3,4,52)],method=c("center","scale","pca"))
+# For caret you do not need to preproces the test data. That is included in the model. When you call on predict with new data, it will be preprocessed according to the preproces rules you specified with training the model
+preProcObj
+```
+
+
+
+# Building and tunning models
+
+### Parameter tunning
+By default, simple bootstrap resampling is used by `train` function. A 5-fold cross-validation was used to specifiy the type of resampling and save computation time.
+
+
+```{r cache=TRUE}
+# Many models utilize random numbers during the phase where parameters are estimated. Also, the resampling indices are chosen using random numbers. There are two main ways to control the randomness in order to assure reproducible results. Use set.seed just prior to calling train. The first use of random numbers is to create the resampling information.
+set.seed(62433)
+fitControl <- trainControl(method = "cv", number = 5)
+```
+
+### Model selection and assessment
+
+Four models are preselected to predict the outcome **classe** with all the other variables: classification trees ("rpart"), random forest ("rf"), boosted trees ("gbm") and linear discriminant analysis ("lda").  
+The model and confusion matrix for each model is plotted to assess its accuracy.
+
+#### Classification Trees
+
+```{r cache=TRUE}
+mod_tr <- train(classe ~ ., data=training, method="rpart", trControl = fitControl)
+pred_tr <- predict(mod_tr, testing)
+
+print(mod_tr)
+fancyRpartPlot(mod_tr$finalModel)
+```
+
+```{r}
+# Classification Trees
+confmat_tr <- confusionMatrix(pred_tr, testing$classe)$overall[1]
+confmat_tr
+```
+
+
+#### Random Forest
+
+```{r cache=TRUE}
+mod_rf <- train(classe ~ ., data=training, method="rf", trControl = fitControl)
+pred_rf <- predict(mod_rf, testing)
+
+print(mod_rf)
+plot(mod_rf)
+```
+
+
+```{r}
+# RF
+confmat_rf <- confusionMatrix(pred_rf, testing$classe)$overall[1]
+confmat_rf
+```
+
+
+#### Boosted Trees
+
+```{r cache=TRUE}
+mod_gbm <- train(classe ~ ., data = training, method = "gbm", trControl = fitControl, verbose=FALSE)
+pred_gbm <- predict(mod_gbm, testing)
+
+print(mod_gbm)
+plot(mod_gbm)
+```
+
+```{r}
+# Boosted# 
+confmat_gbm <- confusionMatrix(pred_gbm, testing$classe)$overall[1]
+confmat_gbm
+```
+
+
+#### Linear Discriminant Analysis
+
+```{r cache=TRUE}
+mod_lda <- train(classe ~ ., data = training, method = "lda", trControl = fitControl)
+pred_lda <- predict(mod_lda, testing)
+
+print(mod_lda)
+```
+
+```{r}
+# lda
+confmat_lda <- confusionMatrix(pred_lda, testing$classe)$overall[1]
+confmat_lda
+```
+
+The Accuracy parameter for the four preselected models is:
+
+1. Classification Trees: `r confmat_tr`
+2. Random forest: `r confmat_rf`
+3. Boosted Trees: `r confmat_gbm`
+4. Linear Discriminant Analysis: `r confmat_lda`
+
+The best performance is achieved with random forest.  
+
+### Prediction in new datasets
+
+Random forest is selected to predict the class in new dataset `dfTest`
+
+```{r}
+pred_test <- predict(mod_rf, dfTest)
+print(pred_test)
+```
+
+## References
+
+http://topepo.github.io/caret/
+Max Kuhn, 2008. Building Predictive Models in R Using the caret Package. Journal of Statistical Softwarem, Volume 28, Issue 5.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
